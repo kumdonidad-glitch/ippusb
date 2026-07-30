@@ -6,6 +6,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Bundle
@@ -148,14 +152,26 @@ class DiagnosticActivity : AppCompatActivity() {
         appendStatus("Sending test PWG job to ${device.deviceName}")
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // create a tiny test PDF programmatically or use assets; here we attempt to use a placeholder sample in filesDir
                 val samplePdf = File(filesDir, "sample.pdf")
                 if (!samplePdf.exists()) {
-                    // create tiny one-page PDF by converting a bitmap into a PDF using Android APIs is elaborate; we'll create dummy file and encoder will fail gracefully
-                    samplePdf.writeText("%PDF-1.4\n%Dummy PDF\n")
+                    // create a tiny one-page PDF using PdfDocument
+                    val doc = PdfDocument()
+                    val pageInfo = PdfDocument.PageInfo.Builder(612, 792, 1).create() // US Letter points
+                    val page = doc.startPage(pageInfo)
+                    val canvas: Canvas = page.canvas
+                    canvas.drawColor(Color.WHITE)
+                    val paint = Paint().apply {
+                        color = Color.BLACK
+                        textSize = 24f
+                    }
+                    canvas.drawText("PWG Test Page", 72f, 72f, paint)
+                    doc.finishPage(page)
+                    doc.writeTo(samplePdf.outputStream())
+                    doc.close()
                 }
+
                 val pwgOut = File(filesDir, "sample.pwg")
-                val ok = PWGRasterEncoder.pdfFirstPageToPwg(this@DiagnosticActivity, samplePdf, pwgOut)
+                val ok = PWGRasterEncoder.pdfToPwgAllPages(this@DiagnosticActivity, samplePdf, pwgOut)
                 if (!ok) {
                     appendStatus("Failed to encode PDF -> PWG")
                     return@launch
