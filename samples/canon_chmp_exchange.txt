@@ -1,0 +1,33 @@
+# Canon CHMP exchange sample (extracted)
+
+This text file contains an extracted CHMP-style HTTP exchange that was captured in Hello_World.pcapng. It is intended as a reference for implementing the Canon USB/CHMP flow.
+
+---
+
+GET /canon/ij/command2/port1 HTTP/1.1
+Host: localhost
+Connection: Keep-Alive
+X-CHMP-Version: 1.3.0
+X-CHMP-Session: {EXAMPLE-SESSION-GUID}
+
+
+HTTP/1.1 200 OK
+Transfer-Encoding: chunked
+Content-Type: application/octet-stream
+
+<?xml version="1.0" encoding="UTF-8"?>
+<cmd ...>
+  <ivec:contents>
+    <ivec:operation>GetCapabilityResponse</ivec:operation>
+    <ivec:param_set servicetype="print">
+      <ivec:support_data_format>JPEG,RAW,JPEGPAGE,PWGRaster,UCIGAR</ivec:support_data_format>
+      ...
+    </ivec:param_set>
+  </ivec:contents>
+</cmd>
+
+---
+
+Notes:
+- The device advertises PWGRaster in the support_data_format element (this is why PWG is a good target PDL).
+- Canon uses X-CHMP-Version and X-CHMP-Session headers over a USB transport using chunked transfer for payloads.

@@ -1,0 +1,1 @@
+I updated the repo with additional files: CanonChmpClient.kt, DiagnosticActivity, PWG encoder stub, layout and a sample CHMP exchange extracted from your pcap. Next: I'll hook the diagnostic UI into MainActivity and improve the PWG encoder to be spec-compliant if you want.

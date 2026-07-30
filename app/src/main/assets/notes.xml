@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<changes>
+  <note>Added Canon CHMP-over-USB client, diagnostic activity, and a PWG encoder stub.</note>
+  <todo>
+    <item>Improve PWG encoder to be fully PWG 5101.1 compliant</item>
+    <item>Wire DiagnosticActivity into app navigation</item>
+    <item>Implement robust IPP binary handling for network discovery</item>
+  </todo>
+</changes>

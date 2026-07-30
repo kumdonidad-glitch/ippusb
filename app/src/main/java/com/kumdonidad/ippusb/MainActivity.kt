@@ -15,13 +15,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(androidx.appcompat.R.layout.abc_action_bar_title_item)
 
-        // Minimal UI: buttons to start/stop service and scan USB devices
         statusText = TextView(this).apply { text = "IPP USB — ready" }
         val startBtn = Button(this).apply { text = "Start Printer Service" }
         val stopBtn = Button(this).apply { text = "Stop Printer Service" }
         val scanBtn = Button(this).apply { text = "Scan USB" }
+        val diagBtn = Button(this).apply { text = "Open Diagnostic" }
 
         startBtn.setOnClickListener {
             val intent = Intent(this, PrinterService::class.java)
@@ -41,10 +40,15 @@ class MainActivity : AppCompatActivity() {
             scanUsbDevices()
         }
 
+        diagBtn.setOnClickListener {
+            startActivity(Intent(this, DiagnosticActivity::class.java))
+        }
+
         val layout = androidx.constraintlayout.widget.ConstraintLayout(this)
         layout.addView(startBtn)
         layout.addView(stopBtn)
         layout.addView(scanBtn)
+        layout.addView(diagBtn)
         layout.addView(statusText)
         setContentView(layout)
     }
@@ -58,7 +62,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             for ((_, device) in deviceList) {
                 sb.append("Device: ${device.deviceName} vendorId=${device.vendorId} productId=${device.productId}\n")
-                // Request permission if needed — real app should prompt and handle the result
             }
         }
         statusText.text = sb.toString()
