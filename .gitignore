@@ -1,0 +1,11 @@
+# Android Studio / Gradle
+.gradle/
+/local.properties
+/.idea/
+/build/
+/captures/
+.externalNativeBuild/
+
+# OS generated
+.DS_Store
+

@@ -1,0 +1,26 @@
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.kumdonidad.ippusb">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:label="IPPUSB"
+        android:supportsRtl="true">
+
+        <service
+            android:name="com.kumdonidad.ippusb.PrinterService"
+            android:exported="false" />
+
+        <activity android:name="com.kumdonidad.ippusb.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>
