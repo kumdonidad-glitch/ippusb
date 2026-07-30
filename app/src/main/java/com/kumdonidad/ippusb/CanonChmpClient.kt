@@ -8,55 +8,20 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.UUID
 
 /**
- * Very small CHMP/HTTP-over-USB client for Canon devices observed in the capture.
- * This is a best-effort scaffold: it opens the USB printer-class interface and
- * performs basic GET/POST exchanges using chunked encoding similar to what's
- * present in your pcap (X-CHMP-* headers).
+ * CanonChmpClient: improved handling of chunked responses and read loop.
+ * - Attempts to read until a terminating zero chunk ("0\r\n\r\n") is observed
+ *   or until a read timeout/limit is reached.
+ * - Decodes chunked transfer encoding into a contiguous payload returned in Result.body.
  */
 class CanonChmpClient(private val context: Context) {
     companion object { private const val TAG = "CanonChmpClient" }
 
     data class Result(val ok: Boolean, val body: String)
-
-    private fun openConnection(device: UsbDevice): Triple<UsbDeviceConnection, UsbInterface, UsbEndpoint>? {
-        val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
-        val connection = manager.openDevice(device) ?: return null
-        var foundInterface: UsbInterface? = null
-        for (i in 0 until device.interfaceCount) {
-            val intf = device.getInterface(i)
-            if (intf.interfaceClass == UsbConstants.USB_CLASS_PRINTER) {
-                foundInterface = intf
-                break
-            }
-        }
-        if (foundInterface == null) {
-            connection.close()
-            return null
-        }
-        if (!connection.claimInterface(foundInterface, true)) {
-            connection.close()
-            return null
-        }
-        var outEp: UsbEndpoint? = null
-        var inEp: UsbEndpoint? = null
-        for (i in 0 until foundInterface.endpointCount) {
-            val ep = foundInterface.getEndpoint(i)
-            if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                if (ep.direction == UsbConstants.USB_DIR_OUT) outEp = ep
-                if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep
-            }
-        }
-        if (outEp == null || inEp == null) {
-            connection.releaseInterface(foundInterface)
-            connection.close()
-            return null
-        }
-        return Triple(connection, foundInterface, outEp).also { /* inEp returned separately by read method */ }
-    }
 
     private fun findPrinterInterface(device: UsbDevice): Pair<UsbInterface, Pair<UsbEndpoint?, UsbEndpoint?>>? {
         var printerInterface: UsbInterface? = null
@@ -92,6 +57,73 @@ class CanonChmpClient(private val context: Context) {
         return Triple(connection, intf, Pair(inEp, outEp))
     }
 
+    private fun readUntilTerminator(connection: UsbDeviceConnection, inEp: UsbEndpoint, timeoutMs: Int = 5000): ByteArray {
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(16384)
+        var attempts = 0
+        while (attempts < 20) { // avoid infinite loops; ~20*timeoutMs total
+            val read = connection.bulkTransfer(inEp, buf, buf.size, timeoutMs)
+            if (read > 0) {
+                out.write(buf, 0, read)
+                val soFar = out.toByteArray()
+                // check for chunked terminator sequence: "\r\n0\r\n\r\n"
+                if (containsSequence(soFar, "\r\n0\r\n\r\n".toByteArray(Charsets.US_ASCII))) {
+                    break
+                }
+                // also break if response contains closing '</cmd>' XML end (practical heuristic)
+                if (containsSequence(soFar, "</cmd>".toByteArray(Charsets.ISO_8859_1))) {
+                    break
+                }
+            } else {
+                attempts++
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun containsSequence(data: ByteArray, seq: ByteArray): Boolean {
+        if (seq.isEmpty()) return true
+        outer@ for (i in 0..(data.size - seq.size)) {
+            for (j in seq.indices) if (data[i + j] != seq[j]) continue@outer
+            return true
+        }
+        return false
+    }
+
+    private fun decodeChunkedResponse(raw: ByteArray): ByteArray {
+        // Find header/body split (\r\n\r\n)
+        val sep = "\r\n\r\n".toByteArray(Charsets.US_ASCII)
+        var idx = -1
+        outer@ for (i in 0..(raw.size - sep.size)) {
+            for (j in sep.indices) if (raw[i + j] != sep[j]) continue@outer
+            idx = i + sep.size
+            break
+        }
+        if (idx < 0) return raw // no headers found; return raw
+
+        val body = raw.copyOfRange(idx, raw.size)
+        val out = ByteArrayOutputStream()
+        var pos = 0
+        while (pos < body.size) {
+            // read chunk size line up to CRLF
+            var eol = -1
+            for (i in pos until body.size - 1) {
+                if (body[i] == '\r'.code.toByte() && body[i + 1] == '\n'.code.toByte()) { eol = i; break }
+            }
+            if (eol == -1) break
+            val line = String(body, pos, eol - pos, Charsets.US_ASCII).trim()
+            val chunkSize = try { Integer.parseInt(line.trim(), 16) } catch (_: Exception) { break }
+            pos = eol + 2
+            if (chunkSize == 0) break
+            if (pos + chunkSize > body.size) break
+            out.write(body, pos, chunkSize)
+            pos += chunkSize
+            // skip CRLF after chunk
+            if (pos + 1 <= body.size && body[pos] == '\r'.code.toByte() && body[pos + 1] == '\n'.code.toByte()) pos += 2
+        }
+        return out.toByteArray()
+    }
+
     fun getCapability(device: UsbDevice): Result {
         val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
         if (!manager.hasPermission(device)) return Result(false, "no-permission")
@@ -118,12 +150,11 @@ class CanonChmpClient(private val context: Context) {
             val sent = connection.bulkTransfer(outEp, request, request.size, 5000)
             Log.i(TAG, "sent $sent bytes to OUT endpoint")
 
-            // read response (non-blocking loop)
-            val respBuf = ByteArray(16384)
-            val read = connection.bulkTransfer(inEp, respBuf, respBuf.size, 5000)
-            if (read > 0) {
-                val body = String(respBuf, 0, read, Charsets.ISO_8859_1)
-                Log.i(TAG, "read $read bytes")
+            val raw = readUntilTerminator(connection, inEp, 3000)
+            if (raw.isNotEmpty()) {
+                val decoded = try { decodeChunkedResponse(raw) } catch (e: Exception) { raw }
+                val body = String(decoded, Charsets.ISO_8859_1)
+                Log.i(TAG, "read ${decoded.size} decoded bytes")
                 return Result(true, body)
             }
             return Result(false, "no-response")
@@ -136,10 +167,6 @@ class CanonChmpClient(private val context: Context) {
         }
     }
 
-    /**
-     * Post an already-encoded PWG/RAW payload to the Canon using chunked transfer.
-     * payload stream will be read in chunks and each chunk sent as chunked body.
-     */
     fun postDocument(device: UsbDevice, payload: InputStream, contentType: String = "application/octet-stream"): Result {
         val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
         if (!manager.hasPermission(device)) return Result(false, "no-permission")
@@ -183,11 +210,10 @@ class CanonChmpClient(private val context: Context) {
             sent = connection.bulkTransfer(outEp, last, last.size, 5000)
             Log.i(TAG, "sent final chunk $sent")
 
-            // read response
-            val respBuf = ByteArray(32768)
-            val read = connection.bulkTransfer(inEp, respBuf, respBuf.size, 10000)
-            if (read > 0) {
-                val body = String(respBuf, 0, read, Charsets.ISO_8859_1)
+            val raw = readUntilTerminator(connection, inEp, 5000)
+            if (raw.isNotEmpty()) {
+                val decoded = try { decodeChunkedResponse(raw) } catch (e: Exception) { raw }
+                val body = String(decoded, Charsets.ISO_8859_1)
                 return Result(true, body)
             }
             return Result(false, "no-response")
