@@ -21,8 +21,11 @@ class JmDNSRegistrar(private val context: Context) {
                 txt["product"] = "(Canon G2730)"
                 txt["rp"] = resourcePath
                 txt["note"] = "Android USB"
-                txt["pdl"] = "application/pdf,image/urf"
-                txt["URF"] = "none"
+                // Advertise PDLs and URF to improve AirPrint compatibility.
+                // Include both application/pdf and image/pwg-raster (PWG Raster) and a URF subset.
+                txt["pdl"] = "application/pdf,image/pwg-raster"
+                // URF string: minimal subset advertising support for basic features.
+                txt["URF"] = "DM1,DF1,SRGB24"
 
                 val info = ServiceInfo.create("_ipp._tcp.local.", friendlyName, port, 0, 0, txt)
                 jmdns?.registerService(info)
