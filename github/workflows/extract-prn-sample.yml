@@ -1,0 +1,56 @@
+name: Extract PRN sample
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'capture.prn'
+
+permissions:
+  contents: write
+
+jobs:
+  extract-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run PRN extraction script
+        run: |
+          python3 tools/extract_prn_sample.py
+
+      - name: Show resulting files (for logs)
+        run: |
+          ls -l samples/prn_examples || true
+          echo "---- meta file (if present) ----"
+          if [ -f samples/prn_examples/canon_chmp_sample.meta.txt ]; then
+            sed -n '1,200p' samples/prn_examples/canon_chmp_sample.meta.txt
+          else
+            echo "meta file not found"
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit & push extracted sample if changed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git add samples/prn_examples/canon_chmp_sample.bin samples/prn_examples/canon_chmp_sample.meta.txt || true
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: add/update extracted PRN sample from capture.prn"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "No changes to commit"
+          fi
