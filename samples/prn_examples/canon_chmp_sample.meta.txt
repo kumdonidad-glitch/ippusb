@@ -1,0 +1,4 @@
+input_file: /home/runner/work/ippusb/ippusb/capture.prn
+xml_offset: 0
+sample_size_requested: 65536
+actual_sample_written: 65536
